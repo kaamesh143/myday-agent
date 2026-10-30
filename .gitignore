@@ -1,0 +1,19 @@
+# Secrets and personal data: never commit
+.env
+*.env.local
+credentials*.json
+token*.json
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
