@@ -170,6 +170,51 @@ commit → pre-commit (gitleaks, ruff) → CI (tests, mypy, pip-audit, CodeQL)
 | 16 | 15–21 Feb | Voice notes, QR, feedback loop | — | Demo video |
 | 17 | 22–28 Feb | v1.0 release | Stretch: MLX fine-tuning | Release, blog post, retrospective |
 
+## 4A. Learning tracks
+
+Each track is taught through a feature of the bot.
+
+| Track | Concepts | Where it is used |
+|---|---|---|
+| A. Python for AI | Functions, types, classes, async, pytest | Every week |
+| B. LLM basics | Tokens, cost, models, prompts, structured output, caching | `/myday` summary (Wk 1-2) |
+| C. Agents | Agent loop, tool use, budgets, hooks, Agent Skills | Ticket agent (Wk 3-5) |
+| D. Frameworks and protocols | LangGraph, MCP, UTCP, A2A | Same agent rebuilt and compared (Wk 5-6, 13) |
+| E. Retrieval | Embeddings, vector DB, RAG, reranking, memory | Questions about past emails (Wk 7-10) |
+| F. Evals | Datasets, graders, LLM-as-judge, Ragas, promptfoo, CI gate | Quality gate (Wk 10-12) |
+| G. Safety | Prompt injection, guardrails, OWASP LLM Top 10, red-team | Attack tests (Wk 14) |
+| H. LLMOps and deployment | Tracing, cost tracking, OpenTelemetry, CI/CD, rollback | Oracle VM (Wk 15) |
+| I. Multimodal and local models | Whisper, QR from PDF, Ollama comparison | Voice and Claude-vs-local evals (Wk 11, 16) |
+
+## 4B. Priority levels
+
+If the schedule slips, cut from the bottom, not the top.
+
+| Level | Items | If behind |
+|---|---|---|
+| Must | Python, LLM basics, agent loop, RAG, evals, safety, deployment | Never cut |
+| Build | LangGraph, MCP, UTCP, Ragas, Langfuse, prompt caching | Shorten |
+| Explore | A2A multi-agent, NeMo Guardrails, promptfoo comparison, MLX fine-tuning | Drop first |
+| Know | AG-UI, computer-use agents, governance (Sunday reading only) | Reading list |
+
+## 4C. Checkpoints and proof of learning
+
+- Each phase: one learning note in `docs/learning/`, written in the owner's own words.
+- Python checkpoints, without AI: week 4 (explain any file), week 12 (write a tool and its test alone), week 16 (find and fix a planted bug).
+- AI checkpoints: eval scores that improve across versions, and a cost figure per request.
+- Final portfolio: public repo, ADRs, eval report, security report, blog post, demo video.
+
+## 4D. Learning risks
+
+| Risk | Mitigation |
+|---|---|
+| About 9 hours a week is tight for 17 weeks | Priority levels above; holiday buffer in weeks 8-9 |
+| Using AI to write everything | Explain-back and no-AI tasks each week |
+| Framework before fundamentals | Hand-written agent first (weeks 3-4) |
+| Cost surprises | $5 spend limit; token and cost logging from Week 1 |
+
+Pacing decision (31 Oct 2026): keep the 17-week timeline. Cut Explore items first if behind.
+
 ## 5. Open items
 
 | Item | Needed by |
