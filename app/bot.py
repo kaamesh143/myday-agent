@@ -17,7 +17,9 @@ from app.chat import answer
 from app.config import load_settings
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)  # httpx logs URLs that contain the bot token
+# httpx logs request URLs, and Telegram URLs contain the bot token. httpx2 is used by the Anthropic library.
+for noisy in ("httpx", "httpx2"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger("assistant")
 
 HELP_TEXT = (
@@ -40,8 +42,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def log_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs for every update (group 1), so skip allowed users: they were already answered."""
     user = update.effective_user
-    if user:
+    if user and user.id not in context.bot_data["allowed_user_ids"]:
         log.warning("Ignored message from unauthorized user id=%s username=%s", user.id, user.username)
 
 
@@ -50,6 +53,7 @@ def build_application(
 ) -> Application:
     app = Application.builder().token(token).build()
     app.bot_data["claude"] = claude_client
+    app.bot_data["allowed_user_ids"] = allowed_user_ids
 
     if allowed_user_ids:
         allowed = filters.User(user_id=allowed_user_ids)

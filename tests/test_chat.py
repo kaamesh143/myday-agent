@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import anthropic
 import httpx
 
-from app.bot import chat
+from app.bot import chat, log_unauthorized
 from app.chat import MAX_INPUT_CHARS, SYSTEM_PROMPT, answer
 
 
@@ -83,3 +83,21 @@ def test_handler_replies_with_claude_answer():
     asyncio.run(chat(update, context))
     assert replies == ["Hi from Claude"]
     assert len(actions) == 1
+
+
+def run_log_unauthorized(user_id, allowed):
+    update = SimpleNamespace(effective_user=SimpleNamespace(id=user_id, username=None))
+    context = SimpleNamespace(bot_data={"allowed_user_ids": frozenset(allowed)})
+    asyncio.run(log_unauthorized(update, context))
+
+
+def test_allowed_user_is_not_logged_as_unauthorized(caplog):
+    with caplog.at_level("WARNING", logger="assistant"):
+        run_log_unauthorized(42, {42})
+    assert "unauthorized" not in caplog.text
+
+
+def test_stranger_is_logged_as_unauthorized(caplog):
+    with caplog.at_level("WARNING", logger="assistant"):
+        run_log_unauthorized(99, {42})
+    assert "unauthorized user id=99" in caplog.text
