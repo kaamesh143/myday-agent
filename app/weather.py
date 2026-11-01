@@ -28,6 +28,7 @@ class Rules:
     snow_cm: float = 0.1  # an hour with at least this much snowfall counts as snow
     gust_kmh: float = 50.0  # gusts at or above this count as windy
     freezing_c: float = 0.0  # a daily minimum below this means winter clothes
+    very_cold_c: float = -10.0  # a daily minimum below this also needs a hat and gloves
 
 
 DEFAULT_RULES = Rules()
@@ -139,6 +140,8 @@ def summarize(forecast: dict, rules: Rules = DEFAULT_RULES) -> tuple[str, str]:
         gear.append("a winter jacket")
     if freezing or snow:
         gear.append("boots")
+    if day_min < rules.very_cold_c:
+        gear.extend(["a hat", "gloves"])
     if len(gear) > 1:
         gear_text = ", ".join(gear[:-1]) + " and " + gear[-1]
     else:
