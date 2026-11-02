@@ -76,6 +76,16 @@ def test_freezing_day_needs_jacket_and_boots():
     assert second == "Max 1° / Min -2°. Take a winter jacket and boots."
 
 
+def test_very_cold_day_adds_hat_and_gloves():
+    _, second = summarize(with_hours(day_min=-12.0, day_max=-5.0))
+    assert second == "Max -5° / Min -12°. Take a winter jacket, boots, a hat and gloves."
+
+
+def test_exactly_minus_ten_is_not_very_cold():
+    _, second = summarize(with_hours(day_min=-10.0, day_max=-4.0))
+    assert second == "Max -4° / Min -10°. Take a winter jacket and boots."
+
+
 def test_snow_adds_boots_even_above_freezing():
     _, second = summarize(with_hours(snow=[9], day_min=1.0))
     assert second.endswith("Take boots.")
