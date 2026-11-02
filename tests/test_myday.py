@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -10,21 +11,33 @@ from telegram.error import TelegramError
 import app.myday as myday
 from app.bot import build_application, myday_cmd, send_daily_myday
 from app.config import load_settings, parse_time_of_day
+from app.myday import MyDayConfig
 from app.weather import WeatherError
 
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
 SEVEN = datetime.time(7, 0, tzinfo=STOCKHOLM)
+CONFIG = MyDayConfig("Europe/Stockholm", Path("data/token.json"), ("primary",), frozenset())
+BOT_DATA = {"allowed_user_ids": frozenset({1, 2}), "myday_config": CONFIG}
 
 
-def fake_weather(monkeypatch, lines=("Dry and calm all day.", "Max 11° / Min 8°. No extra gear needed.")):
+def fake_weather(
+    monkeypatch,
+    lines=("Dry and calm all day.", "Max 11° / Min 8°. No extra gear needed."),
+    calendar="09:00–09:30 Standup",
+):
     monkeypatch.setattr(myday, "get_weather_lines", lambda: lines)
+    monkeypatch.setattr(myday, "get_calendar_text", lambda *args: calendar)
 
 
-def test_message_contains_both_weather_lines(monkeypatch):
+EXPECTED = (
+    "Today\n09:00–09:30 Standup\n\n"
+    "Weather today\nDry and calm all day.\nMax 11° / Min 8°. No extra gear needed."
+)
+
+
+def test_message_contains_calendar_and_weather(monkeypatch):
     fake_weather(monkeypatch)
-    assert myday.build_myday_message() == (
-        "Weather today\nDry and calm all day.\nMax 11° / Min 8°. No extra gear needed."
-    )
+    assert myday.build_myday_message(CONFIG) == EXPECTED
 
 
 def test_message_survives_a_weather_failure(monkeypatch):
@@ -32,7 +45,23 @@ def test_message_survives_a_weather_failure(monkeypatch):
         raise WeatherError("down")
 
     monkeypatch.setattr(myday, "get_weather_lines", broken)
-    assert myday.build_myday_message() == "Weather today\nWeather is not available right now."
+    monkeypatch.setattr(myday, "get_calendar_text", lambda *args: "No meetings today.")
+    assert myday.build_myday_message(CONFIG) == (
+        "Today\nNo meetings today.\n\nWeather today\nWeather is not available right now."
+    )
+
+
+def test_calendar_text_is_built_from_the_config(monkeypatch):
+    seen = {}
+
+    def fake_calendar(*args):
+        seen["args"] = args
+        return "No meetings today."
+
+    monkeypatch.setattr(myday, "get_weather_lines", lambda: ("a", "b"))
+    monkeypatch.setattr(myday, "get_calendar_text", fake_calendar)
+    myday.build_myday_message(CONFIG)
+    assert seen["args"] == (Path("data/token.json"), "Europe/Stockholm", ("primary",), frozenset())
 
 
 def test_myday_command_replies_with_the_message(monkeypatch):
@@ -43,8 +72,8 @@ def test_myday_command_replies_with_the_message(monkeypatch):
         replies.append(text)
 
     update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text))
-    asyncio.run(myday_cmd(update, SimpleNamespace()))
-    assert replies == ["Weather today\nDry and calm all day.\nMax 11° / Min 8°. No extra gear needed."]
+    asyncio.run(myday_cmd(update, SimpleNamespace(bot_data=BOT_DATA)))
+    assert replies == [EXPECTED]
 
 
 def test_daily_job_sends_to_every_allowed_user_only(monkeypatch):
@@ -56,7 +85,7 @@ def test_daily_job_sends_to_every_allowed_user_only(monkeypatch):
 
     context = SimpleNamespace(
         bot=SimpleNamespace(send_message=send_message),
-        bot_data={"allowed_user_ids": frozenset({1, 2})},
+        bot_data=BOT_DATA,
     )
     asyncio.run(send_daily_myday(context))
     assert sorted(sent) == [1, 2]
@@ -73,14 +102,14 @@ def test_daily_job_keeps_going_when_one_send_fails(monkeypatch):
 
     context = SimpleNamespace(
         bot=SimpleNamespace(send_message=send_message),
-        bot_data={"allowed_user_ids": frozenset({1, 2})},
+        bot_data=BOT_DATA,
     )
     asyncio.run(send_daily_myday(context))
     assert sent == [2]
 
 
 def make_app(allowed):
-    return build_application("123:FAKE", frozenset(allowed), anthropic.Anthropic(api_key="x"), SEVEN)
+    return build_application("123:FAKE", frozenset(allowed), anthropic.Anthropic(api_key="x"), SEVEN, CONFIG)
 
 
 def test_daily_job_is_scheduled_at_the_chosen_time():
@@ -126,3 +155,20 @@ def test_settings_exits_on_bad_myday_time(monkeypatch):
     monkeypatch.setenv("MYDAY_TIME", "banana")
     with pytest.raises(SystemExit):
         load_settings()
+
+
+def test_settings_calendar_defaults_and_choices(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:fake")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    monkeypatch.delenv("CALENDAR_IDS", raising=False)
+    monkeypatch.delenv("CALENDAR_PRIVATE_IDS", raising=False)
+    defaults = load_settings()
+    assert defaults.calendar_ids == ("primary",)
+    assert defaults.private_calendar_ids == frozenset()
+    assert defaults.google_token_path == Path("data/token.json")
+
+    monkeypatch.setenv("CALENDAR_IDS", "primary, work@example.com")
+    monkeypatch.setenv("CALENDAR_PRIVATE_IDS", "work@example.com")
+    chosen = load_settings()
+    assert chosen.calendar_ids == ("primary", "work@example.com")
+    assert chosen.private_calendar_ids == frozenset({"work@example.com"})

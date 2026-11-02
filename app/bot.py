@@ -17,7 +17,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from app.chat import answer
 from app.config import load_settings
-from app.myday import build_myday_message
+from app.myday import MyDayConfig, build_myday_message
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs request URLs, and Telegram URLs contain the bot token. httpx2 is used by the Anthropic library.
@@ -28,7 +28,7 @@ log = logging.getLogger("assistant")
 HELP_TEXT = (
     "Hi! I'm your assistant (milestone 2: Claude chat).\n\n"
     "/help - show this message\n"
-    "/myday - today's weather (calendar and shares come later)\n"
+    "/myday - today's calendar and weather\n"
     "Send any text and Claude will answer. I don't remember earlier messages yet."
 )
 
@@ -39,13 +39,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def myday_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # The weather request waits for the network, so run it in a thread.
-    text = await asyncio.to_thread(build_myday_message)
+    text = await asyncio.to_thread(build_myday_message, context.bot_data["myday_config"])
     await update.message.reply_text(text)
 
 
 async def send_daily_myday(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Runs once a day. Sends the same message as /myday to every allowed user."""
-    text = await asyncio.to_thread(build_myday_message)
+    text = await asyncio.to_thread(build_myday_message, context.bot_data["myday_config"])
     for user_id in context.bot_data["allowed_user_ids"]:
         try:
             await context.bot.send_message(chat_id=user_id, text=text)
@@ -73,10 +73,12 @@ def build_application(
     allowed_user_ids: frozenset[int],
     claude_client: anthropic.Anthropic,
     myday_time: datetime.time,
+    myday_config: MyDayConfig,
 ) -> Application:
     app = Application.builder().token(token).build()
     app.bot_data["claude"] = claude_client
     app.bot_data["allowed_user_ids"] = allowed_user_ids
+    app.bot_data["myday_config"] = myday_config
 
     if allowed_user_ids:
         allowed = filters.User(user_id=allowed_user_ids)
@@ -98,7 +100,15 @@ def main() -> None:
             "Message the bot, copy your id from the log, add it to .env and restart."
         )
     claude_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    app = build_application(settings.bot_token, settings.allowed_user_ids, claude_client, settings.myday_time)
+    myday_config = MyDayConfig(
+        timezone=settings.timezone,
+        google_token_path=settings.google_token_path,
+        calendar_ids=settings.calendar_ids,
+        private_calendar_ids=settings.private_calendar_ids,
+    )
+    app = build_application(
+        settings.bot_token, settings.allowed_user_ids, claude_client, settings.myday_time, myday_config
+    )
     log.info(
         "Daily /myday message scheduled at %s (%s)", settings.myday_time.strftime("%H:%M"), settings.timezone
     )

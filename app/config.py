@@ -3,6 +3,7 @@
 import datetime
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -17,6 +18,11 @@ def parse_user_ids(raw: str) -> frozenset[int]:
             raise ValueError(f"ALLOWED_USER_IDS contains a non-numeric value: {part!r}")
         ids.add(int(part))
     return frozenset(ids)
+
+
+def parse_list(raw: str) -> tuple[str, ...]:
+    """Turn "a, b,,c" into ("a", "b", "c")."""
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
 def parse_time_of_day(raw: str, timezone: str) -> datetime.time:
@@ -37,6 +43,9 @@ class Settings:
     allowed_user_ids: frozenset[int]
     timezone: str
     myday_time: datetime.time  # when the daily brief is sent, in the owner's timezone
+    google_token_path: Path
+    calendar_ids: tuple[str, ...]  # calendars shown in /myday ("primary" is your main one)
+    private_calendar_ids: frozenset[str]  # calendars whose events are shown as "Busy"
 
 
 def load_settings() -> Settings:
@@ -57,4 +66,7 @@ def load_settings() -> Settings:
         allowed_user_ids=parse_user_ids(os.environ.get("ALLOWED_USER_IDS", "")),
         timezone=timezone,
         myday_time=myday_time,
+        google_token_path=Path(os.environ.get("GOOGLE_TOKEN_FILE", "data/token.json")),
+        calendar_ids=parse_list(os.environ.get("CALENDAR_IDS", "")) or ("primary",),
+        private_calendar_ids=frozenset(parse_list(os.environ.get("CALENDAR_PRIVATE_IDS", ""))),
     )
