@@ -10,6 +10,14 @@ from app.weather import WeatherError, fetch_forecast, summarize
 FIXTURE = Path(__file__).parent / "fixtures" / "malmo_dry_day.json"
 
 
+@pytest.fixture(autouse=True)
+def waits(monkeypatch) -> list[float]:
+    """Replace sleeping with a recorder, so retry tests run instantly."""
+    recorded: list[float] = []
+    monkeypatch.setattr("app.weather.time.sleep", recorded.append)
+    return recorded
+
+
 def dry_day() -> dict:
     """A real Malmö forecast: dry, gusts at most 25 km/h, 7.7 to 10.9 degrees."""
     return json.loads(FIXTURE.read_text())
@@ -167,3 +175,72 @@ def test_fetch_turns_bad_json_into_weather_error():
     client = make_client(lambda request: httpx.Response(200, content=b"not json"))
     with pytest.raises(WeatherError):
         fetch_forecast(client=client)
+
+
+def counting_client(*responses):
+    """A client that answers with each given response in turn, and counts the calls."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        outcome = responses[min(len(calls), len(responses)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return make_client(handler), calls
+
+
+def ok():
+    return httpx.Response(200, json=dry_day())
+
+
+def test_one_server_error_is_retried_and_then_succeeds(waits):
+    client, calls = counting_client(httpx.Response(503), ok())
+    assert fetch_forecast(client=client)["daily"]["temperature_2m_max"] == [10.9]
+    assert len(calls) == 2
+    assert waits == [1.0]
+
+
+def test_one_network_failure_is_retried():
+    request = httpx.Request("GET", "https://example.invalid")
+    client, calls = counting_client(httpx.ConnectTimeout("slow", request=request), ok())
+    fetch_forecast(client=client)
+    assert len(calls) == 2
+
+
+def test_rate_limit_is_retried():
+    client, calls = counting_client(httpx.Response(429), ok())
+    fetch_forecast(client=client)
+    assert len(calls) == 2
+
+
+def test_bad_json_is_retried():
+    client, calls = counting_client(httpx.Response(200, content=b"<html>oops</html>"), ok())
+    fetch_forecast(client=client)
+    assert len(calls) == 2
+
+
+def test_wrong_request_is_not_retried():
+    client, calls = counting_client(httpx.Response(400))
+    with pytest.raises(WeatherError):
+        fetch_forecast(client=client)
+    assert len(calls) == 1
+
+
+def test_gives_up_after_two_attempts_and_logs_the_reason(caplog):
+    request = httpx.Request("GET", "https://example.invalid")
+    client, calls = counting_client(httpx.ConnectError("no network", request=request))
+    with caplog.at_level("WARNING", logger="assistant"), pytest.raises(WeatherError):
+        fetch_forecast(client=client)
+    assert len(calls) == 2
+    assert "attempt 1 of 2): ConnectError" in caplog.text
+    assert "attempt 2 of 2): ConnectError" in caplog.text
+
+
+def test_status_code_is_logged_but_not_the_body(caplog):
+    client, _ = counting_client(httpx.Response(500, content=b"secret internal body"))
+    with caplog.at_level("WARNING", logger="assistant"), pytest.raises(WeatherError):
+        fetch_forecast(client=client)
+    assert "HTTPStatusError 500" in caplog.text
+    assert "secret" not in caplog.text

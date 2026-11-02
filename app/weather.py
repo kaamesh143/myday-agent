@@ -3,12 +3,18 @@
 Uses Open-Meteo (free, no API key). All the rules are plain code, no AI.
 """
 
+import logging
+import time
 from dataclasses import dataclass
 
 import httpx
 
+log = logging.getLogger("assistant")
+
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT_SECONDS = 10
+ATTEMPTS = 2  # one try plus one retry
+RETRY_WAIT_SECONDS = 1.0
 
 # Malmö. Later this moves to settings so anyone can use their own location.
 DEFAULT_LATITUDE = 55.605
@@ -34,13 +40,39 @@ class Rules:
 DEFAULT_RULES = Rules()
 
 
+def _request(params: dict, client: httpx.Client | None) -> dict:
+    """One attempt: ask the service once and return its JSON."""
+    if client is None:
+        with httpx.Client(timeout=TIMEOUT_SECONDS) as own_client:
+            response = own_client.get(FORECAST_URL, params=params)
+    else:
+        response = client.get(FORECAST_URL, params=params)
+    response.raise_for_status()
+    return response.json()
+
+
+def _describe(exc: Exception) -> str:
+    """The error type (and HTTP status) for the log. Never the response body."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"{type(exc).__name__} {exc.response.status_code}"
+    return type(exc).__name__
+
+
+def _worth_retrying(exc: Exception) -> bool:
+    """Network errors, timeouts and bad responses can fix themselves. A wrong request cannot."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status == 429 or status >= 500
+    return True
+
+
 def fetch_forecast(
     latitude: float = DEFAULT_LATITUDE,
     longitude: float = DEFAULT_LONGITUDE,
     timezone: str = DEFAULT_TIMEZONE,
     client: httpx.Client | None = None,
 ) -> dict:
-    """Download today's hourly and daily forecast as raw data."""
+    """Download today's hourly and daily forecast as raw data. Retries once on temporary errors."""
     params = {
         "latitude": latitude,
         "longitude": longitude,
@@ -49,16 +81,17 @@ def fetch_forecast(
         "timezone": timezone,
         "forecast_days": 1,
     }
-    try:
-        if client is None:
-            with httpx.Client(timeout=TIMEOUT_SECONDS) as own_client:
-                response = own_client.get(FORECAST_URL, params=params)
-        else:
-            response = client.get(FORECAST_URL, params=params)
-        response.raise_for_status()
-        return response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise WeatherError("Weather is not available right now.") from exc
+    last_error: Exception | None = None
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return _request(params, client)
+        except (httpx.HTTPError, ValueError) as exc:
+            last_error = exc
+            log.warning("Weather request failed (attempt %d of %d): %s", attempt, ATTEMPTS, _describe(exc))
+            if attempt == ATTEMPTS or not _worth_retrying(exc):
+                break
+            time.sleep(RETRY_WAIT_SECONDS)
+    raise WeatherError("Weather is not available right now.") from last_error
 
 
 def _windows(hours: list[int]) -> list[tuple[int, int]]:
