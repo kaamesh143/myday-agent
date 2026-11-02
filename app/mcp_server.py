@@ -13,7 +13,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from app.agent import WEATHER_TOOL
+from app.logging_setup import quiet_http_logs
 from app.weather import WeatherError, get_weather_lines
+
+quiet_http_logs()  # never log request URLs: they can contain secrets or the owner's location
 
 server = MCPServer(
     "myday-weather",

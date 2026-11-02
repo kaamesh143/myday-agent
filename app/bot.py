@@ -17,12 +17,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from app.chat import answer
 from app.config import load_settings
+from app.logging_setup import quiet_http_logs
 from app.myday import MyDayConfig, build_myday_message
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
-# httpx logs request URLs, and Telegram URLs contain the bot token. httpx2 is used by the Anthropic library.
-for noisy in ("httpx", "httpx2"):
-    logging.getLogger(noisy).setLevel(logging.WARNING)
+quiet_http_logs()
 log = logging.getLogger("assistant")
 
 HELP_TEXT = (
