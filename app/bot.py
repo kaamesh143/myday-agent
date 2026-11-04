@@ -105,6 +105,7 @@ def main() -> None:
         google_token_path=settings.google_token_path,
         calendar_ids=settings.calendar_ids,
         private_calendar_ids=settings.private_calendar_ids,
+        weather_source=settings.weather_source,
     )
     app = build_application(
         settings.bot_token, settings.allowed_user_ids, claude_client, settings.myday_time, myday_config
@@ -112,6 +113,7 @@ def main() -> None:
     log.info(
         "Daily /myday message scheduled at %s (%s)", settings.myday_time.strftime("%H:%M"), settings.timezone
     )
+    log.info("Weather for /myday comes from: %s", settings.weather_source)
     log.info("Bot starting (polling). Allowed users: %s", sorted(settings.allowed_user_ids))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

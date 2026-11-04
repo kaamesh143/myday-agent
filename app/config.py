@@ -46,6 +46,10 @@ class Settings:
     google_token_path: Path
     calendar_ids: tuple[str, ...]  # calendars shown in /myday ("primary" is your main one)
     private_calendar_ids: frozenset[str]  # calendars whose events are shown as "Busy"
+    weather_source: str = "direct"  # "direct" or "mcp" (Lab 3: the bot asks our MCP server)
+
+
+WEATHER_SOURCES = ("direct", "mcp")
 
 
 def load_settings() -> Settings:
@@ -60,6 +64,11 @@ def load_settings() -> Settings:
         myday_time = parse_time_of_day(os.environ.get("MYDAY_TIME", "07:00"), timezone)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    weather_source = os.environ.get("WEATHER_SOURCE", "direct").strip().lower() or "direct"
+    if weather_source not in WEATHER_SOURCES:
+        raise SystemExit(
+            f"WEATHER_SOURCE must be one of {', '.join(WEATHER_SOURCES)} (got {weather_source!r})"
+        )
     return Settings(
         bot_token=token,
         anthropic_api_key=api_key,
@@ -69,4 +78,5 @@ def load_settings() -> Settings:
         google_token_path=Path(os.environ.get("GOOGLE_TOKEN_FILE", "data/token.json")),
         calendar_ids=parse_list(os.environ.get("CALENDAR_IDS", "")) or ("primary",),
         private_calendar_ids=frozenset(parse_list(os.environ.get("CALENDAR_PRIVATE_IDS", ""))),
+        weather_source=weather_source,
     )
