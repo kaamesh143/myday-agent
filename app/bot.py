@@ -7,6 +7,7 @@ find your own ID on first run.
 
 import asyncio
 import datetime
+import functools
 import logging
 
 import anthropic
@@ -17,7 +18,9 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from app.chat import answer
 from app.config import load_settings
+from app.gmail_source import DEFAULT_QUERY
 from app.myday import MyDayConfig, build_myday_message
+from app.trip import TripConfig, trip_reply, trip_section_for_myday
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs request URLs, and Telegram URLs contain the bot token. httpx2 is used by the Anthropic library.
@@ -28,7 +31,10 @@ log = logging.getLogger("assistant")
 HELP_TEXT = (
     "Hi! I'm your assistant (milestone 2: Claude chat).\n\n"
     "/help - show this message\n"
-    "/myday - today's calendar and weather\n"
+    "/myday - today's calendar and weather (and your trip, when one is coming up)\n"
+    "/trip - your trip plan from booking emails in Gmail\n"
+    "/trip refresh - search Gmail again now\n"
+    "/trip <question> - ask about the trip, e.g. /trip when is my flight?\n"
     "Send any text and Claude will answer. I don't remember earlier messages yet."
 )
 
@@ -37,15 +43,32 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT)
 
 
+def _myday_text(bot_data: dict) -> str:
+    trip_config = bot_data.get("trip_config")
+    trip = None
+    if trip_config is not None:
+        trip = functools.partial(trip_section_for_myday, trip_config, bot_data["claude"])
+    return build_myday_message(bot_data["myday_config"], trip)
+
+
 async def myday_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # The weather request waits for the network, so run it in a thread.
-    text = await asyncio.to_thread(build_myday_message, context.bot_data["myday_config"])
+    text = await asyncio.to_thread(_myday_text, context.bot_data)
     await update.message.reply_text(text)
+
+
+async def trip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    argument = " ".join(context.args or [])
+    await update.message.chat.send_action(ChatAction.TYPING)
+    text = await asyncio.to_thread(
+        trip_reply, context.bot_data["trip_config"], context.bot_data["claude"], argument
+    )
+    await update.message.reply_text(text[:4000])
 
 
 async def send_daily_myday(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Runs once a day. Sends the same message as /myday to every allowed user."""
-    text = await asyncio.to_thread(build_myday_message, context.bot_data["myday_config"])
+    text = await asyncio.to_thread(_myday_text, context.bot_data)
     for user_id in context.bot_data["allowed_user_ids"]:
         try:
             await context.bot.send_message(chat_id=user_id, text=text)
@@ -74,16 +97,20 @@ def build_application(
     claude_client: anthropic.Anthropic,
     myday_time: datetime.time,
     myday_config: MyDayConfig,
+    trip_config: TripConfig | None = None,
 ) -> Application:
     app = Application.builder().token(token).build()
     app.bot_data["claude"] = claude_client
     app.bot_data["allowed_user_ids"] = allowed_user_ids
     app.bot_data["myday_config"] = myday_config
+    app.bot_data["trip_config"] = trip_config
 
     if allowed_user_ids:
         allowed = filters.User(user_id=allowed_user_ids)
         app.add_handler(CommandHandler(["start", "help"], help_cmd, filters=allowed))
         app.add_handler(CommandHandler("myday", myday_cmd, filters=allowed))
+        if trip_config is not None:
+            app.add_handler(CommandHandler("trip", trip_cmd, filters=allowed))
         if app.job_queue is not None:
             app.job_queue.run_daily(send_daily_myday, time=myday_time, name="daily_myday")
         app.add_handler(MessageHandler(allowed & filters.TEXT & ~filters.COMMAND, chat))
@@ -107,8 +134,20 @@ def main() -> None:
         private_calendar_ids=settings.private_calendar_ids,
         weather_source=settings.weather_source,
     )
+    trip_config = TripConfig(
+        token_path=settings.google_token_path,
+        cache_path=settings.trip_cache_path,
+        timezone=settings.timezone,
+        query=settings.trip_gmail_query or DEFAULT_QUERY,
+        days_ahead=settings.trip_days_ahead,
+    )
     app = build_application(
-        settings.bot_token, settings.allowed_user_ids, claude_client, settings.myday_time, myday_config
+        settings.bot_token,
+        settings.allowed_user_ids,
+        claude_client,
+        settings.myday_time,
+        myday_config,
+        trip_config,
     )
     log.info(
         "Daily /myday message scheduled at %s (%s)", settings.myday_time.strftime("%H:%M"), settings.timezone

@@ -1,0 +1,40 @@
+# Trip plan from Gmail
+
+`/trip` and `/myday` show your upcoming travel, read from booking emails in Gmail.
+
+## How it works
+
+1. The bot searches Gmail (read-only) for booking emails from the last 6 months
+   (subject words like booking, ticket, itinerary, confirmation, flight, hotel).
+2. Claude reads those emails and returns a list of trip items as JSON:
+   kind, title, date, time, arrival, booking reference, one line of details.
+   Claude has no tools here, so text inside an email cannot make the bot do anything.
+3. The list is saved in `data/trip_cache.json` for 6 hours, so `/myday` does not
+   search Gmail and call Claude every time.
+4. `/myday` adds a "Trip" section only when something starts in the next
+   `TRIP_DAYS_AHEAD` days (default 30). If Gmail fails, `/myday` simply leaves it out.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/trip` | The whole upcoming plan, grouped by day |
+| `/trip refresh` | Search Gmail again now (after a new booking or a change) |
+| `/trip <question>` | Ask about it, e.g. `/trip what time should I leave for the airport?` |
+
+## Limits to know
+
+- Only the email text is read, not PDF attachments. Most airline, train and hotel emails
+  have the details in the text. If one is missing, forward the PDF to yourself as text or
+  use `TRIP_GMAIL_QUERY` with a Gmail label you put on your bookings.
+- Claude can misread an email. Always check times and terminals in the original booking.
+- The email text is sent to the Anthropic API to extract the items. Cost is about
+  one cent or less per refresh.
+
+## Rollback
+
+- Turn it off for `/myday`: nothing to do if no trip is coming; otherwise revert the PR.
+- Remove Gmail access: <https://myaccount.google.com/permissions> → your app → Remove access,
+  then run `python -m app.google_auth` again (it will ask for both scopes; to go back to
+  calendar-only, revert this PR first).
+- Delete `data/trip_cache.json` to remove the saved trip items.

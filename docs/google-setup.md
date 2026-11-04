@@ -1,4 +1,4 @@
-# Google Calendar setup (read-only)
+# Google Calendar and Gmail setup (read-only)
 
 One-time setup so the bot can read your calendar. It never gets permission to change anything.
 Takes about 20 minutes. The Google console menus change from time to time, so follow the
@@ -8,12 +8,13 @@ intent of each step if a label differs.
 
 1. Open the Google Cloud console and create a project, for example `myday-agent`.
 2. Open **APIs and services → Library**, search for **Google Calendar API**, and click **Enable**.
+   Do the same for **Gmail API** (used by `/trip`).
 
 ## 2. Configure the OAuth consent screen
 
 1. Open **APIs and services → OAuth consent screen** (also called Google Auth platform).
 2. User type: **External**. Fill in an app name and your own email.
-3. Scopes: add only `.../auth/calendar.readonly`. Do not add any other scope.
+3. Scopes: add only `.../auth/calendar.readonly` and `.../auth/gmail.readonly`. Do not add any other scope.
 4. Add your own Google account as a **test user**.
 5. **Publish the app** (set the publishing status to **In production**).
    If it stays in "Testing", Google expires your login every 7 days and the bot stops reading
@@ -34,7 +35,7 @@ python -m app.google_auth
 ```
 
 Your browser opens. Sign in, read what is requested (it should say "See and download any
-calendar you can access"), and approve. The script saves `data/token.json`. This file is a secret:
+calendar you can access" and "View your email messages and settings"), and approve both. The script saves `data/token.json`. This file is a secret:
 only your user can read it, and it must never go into git.
 
 ## 5. Check it
@@ -73,3 +74,30 @@ meeting names never reach Telegram. Overlaps between your personal and office ev
 Note: calendars shared as "free/busy only" may not be readable event by event through the
 Google API. If the office calendar shows nothing, tell the maintainer so the code can switch to
 Google's dedicated free/busy request.
+
+## Adding Gmail (if you signed in before /trip existed)
+
+Your old `data/token.json` only allows the calendar. The calendar keeps working, and `/trip` says
+"Gmail is not connected yet" until you do this once, on your Mac, in the project folder:
+
+1. Google Cloud console → **APIs and services → Library** → **Gmail API** → **Enable**.
+2. **OAuth consent screen → Data access (Scopes) → Add or remove scopes** → tick
+   `.../auth/gmail.readonly` → **Update** → **Save**.
+3. Pull the new code and sign in again (this replaces `data/token.json`):
+   ```bash
+   git pull
+   source .venv/bin/activate        # or create it: python3 -m venv .venv && pip install -r requirements.txt
+   python -m app.google_auth
+   ```
+   Approve **both** boxes: calendar and "View your email messages and settings".
+   Gmail is a restricted scope, so Google shows a stronger "unverified app" warning. That is
+   expected for a personal app: Advanced → Go to the app.
+4. Restart and check:
+   ```bash
+   docker compose up --build -d
+   docker compose run --rm bot python -m app.try_trip
+   ```
+   Then send `/trip` to the bot.
+
+Rollback: remove the app at <https://myaccount.google.com/permissions>. Keep a copy of the old
+token first if you want to return to calendar-only quickly: `cp data/token.json data/token.calendar-only.json`.

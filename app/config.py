@@ -36,6 +36,14 @@ def parse_time_of_day(raw: str, timezone: str) -> datetime.time:
         ) from exc
 
 
+def parse_days(raw: str) -> int:
+    """TRIP_DAYS_AHEAD: a whole number of days from 0 to 365."""
+    raw = raw.strip() or "30"
+    if not raw.isdigit() or int(raw) > 365:
+        raise SystemExit(f"TRIP_DAYS_AHEAD must be a whole number from 0 to 365 (got {raw!r})")
+    return int(raw)
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str
@@ -47,6 +55,9 @@ class Settings:
     calendar_ids: tuple[str, ...]  # calendars shown in /myday ("primary" is your main one)
     private_calendar_ids: frozenset[str]  # calendars whose events are shown as "Busy"
     weather_source: str = "direct"  # "direct" or "mcp" (Lab 3: the bot asks our MCP server)
+    trip_cache_path: Path = Path("data/trip_cache.json")  # trip items found in Gmail
+    trip_gmail_query: str = ""  # empty means the built-in booking search
+    trip_days_ahead: int = 30  # how far ahead /myday shows trip items
 
 
 WEATHER_SOURCES = ("direct", "mcp")
@@ -79,4 +90,7 @@ def load_settings() -> Settings:
         calendar_ids=parse_list(os.environ.get("CALENDAR_IDS", "")) or ("primary",),
         private_calendar_ids=frozenset(parse_list(os.environ.get("CALENDAR_PRIVATE_IDS", ""))),
         weather_source=weather_source,
+        trip_cache_path=Path(os.environ.get("TRIP_CACHE_FILE", "data/trip_cache.json")),
+        trip_gmail_query=os.environ.get("TRIP_GMAIL_QUERY", "").strip(),
+        trip_days_ahead=parse_days(os.environ.get("TRIP_DAYS_AHEAD", "30")),
     )
