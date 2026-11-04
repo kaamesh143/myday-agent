@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -125,3 +126,56 @@ def test_token_keeps_every_approved_scope(tmp_path):
 
 def test_only_read_only_scopes_are_requested():
     assert all(scope.endswith(".readonly") for scope in ALL_SCOPES)
+
+
+def pdf_message(parts):
+    return {
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "headers": [{"name": "Subject", "value": "Booking confirmation 123"}],
+            "parts": [{"mimeType": "text/plain", "body": {"data": b64("hi")}}, *parts],
+        }
+    }
+
+
+def fake_gmail_with_attachments(messages_by_id, attachments):
+    calls = []
+
+    def list_(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(execute=lambda: {"messages": [{"id": i} for i in messages_by_id]})
+
+    def get(**kwargs):
+        return SimpleNamespace(execute=lambda: messages_by_id[kwargs["id"]])
+
+    def get_attachment(**kwargs):
+        return SimpleNamespace(execute=lambda: {"data": attachments[kwargs["id"]]})
+
+    msgs = SimpleNamespace(list=list_, get=get, attachments=lambda: SimpleNamespace(get=get_attachment))
+    return SimpleNamespace(users=lambda: SimpleNamespace(messages=lambda: msgs)), calls
+
+
+def test_pdf_attachments_are_downloaded_and_named():
+    from app.gmail_source import fetch_pdf_attachments
+
+    pdf_body = {"attachmentId": "a1", "size": 9}
+    part = {"filename": "booking.pdf", "mimeType": "application/pdf", "body": pdf_body}
+    image = {"filename": "logo.png", "mimeType": "image/png", "body": {"attachmentId": "a2", "size": 9}}
+    service, calls = fake_gmail_with_attachments(
+        {"m1": pdf_message([part, image])}, {"a1": b64("%PDF-1.4 fake")}
+    )
+    pdfs = fetch_pdf_attachments(Path("t.json"), "Scandic", service_factory=lambda p: service)
+    assert [(p.filename, p.subject, p.data) for p in pdfs] == [
+        ("booking.pdf", "Booking confirmation 123", b"%PDF-1.4 fake")
+    ]
+    assert "has:attachment filename:pdf" in calls[0]["q"] and "Scandic" in calls[0]["q"]
+
+
+def test_at_most_three_pdfs_and_huge_ones_are_skipped():
+    from app.gmail_source import fetch_pdf_attachments
+
+    huge = {"filename": "big.pdf", "body": {"attachmentId": "x", "size": 10**9}}
+    small = [{"filename": f"t{n}.pdf", "body": {"data": b64("pdf"), "size": 3}} for n in range(5)]
+    service, _ = fake_gmail_with_attachments({"m1": pdf_message([huge, *small])}, {})
+    pdfs = fetch_pdf_attachments(Path("t.json"), "x", service_factory=lambda p: service)
+    assert [p.filename for p in pdfs] == ["t0.pdf", "t1.pdf", "t2.pdf"]

@@ -19,7 +19,14 @@ from google.auth.exceptions import GoogleAuthError, RefreshError
 from googleapiclient.errors import HttpError
 
 from app.claude_client import ClaudeRefusedError, ask_claude
-from app.gmail_source import DEFAULT_QUERY, Email, GmailNotAllowedError, fetch_booking_emails
+from app.gmail_source import (
+    DEFAULT_QUERY,
+    Attachment,
+    Email,
+    GmailNotAllowedError,
+    fetch_booking_emails,
+    fetch_pdf_attachments,
+)
 
 log = logging.getLogger("assistant")
 
@@ -290,3 +297,34 @@ def trip_reply(config: TripConfig, client: anthropic.Anthropic, argument: str) -
             return "That question is too long. Please keep it under 1000 characters."
         return answer_trip_question(client, coming, argument, now)
     return f"Your trip plan (from Gmail)\n\n{format_trip(coming, now.date())}"
+
+
+TICKET_USAGE = "Tell me what to look for, e.g. /ticket Scandic Rovaniemi or /ticket train Krakow"
+NO_PDF = "No PDF found in Gmail for that. Try other words, e.g. the hotel name or booking reference."
+
+
+def find_ticket_pdfs(
+    config: TripConfig,
+    words: str,
+    *,
+    fetch: Callable[[Path, str], list[Attachment]] = fetch_pdf_attachments,
+) -> list[Attachment] | str:
+    """The PDFs to send for /ticket, or a short message saying why there are none. Never raises."""
+    words = words.strip()
+    if not words:
+        return TICKET_USAGE
+    if len(words) > 200:
+        return "Please use fewer words (under 200 characters)."
+    if not config.token_path.exists():
+        return NOT_CONNECTED
+    try:
+        pdfs = fetch(config.token_path, words)
+    except GmailNotAllowedError:
+        return NOT_CONNECTED
+    except RefreshError:
+        log.warning("Gmail sign-in has expired")
+        return SIGNED_OUT
+    except (HttpError, GoogleAuthError, OSError, ValueError) as exc:
+        log.warning("Ticket PDFs could not be read: %s", type(exc).__name__)
+        return UNAVAILABLE
+    return pdfs or NO_PDF

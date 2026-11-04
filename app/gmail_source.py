@@ -24,10 +24,13 @@ log = logging.getLogger("assistant")
 DEFAULT_QUERY = (
     "newer_than:180d -category:promotions -category:social "
     "subject:(booking OR booked OR ticket OR e-ticket OR itinerary OR reservation "
-    'OR confirmation OR confirmed OR "boarding pass" OR flight OR train OR hotel)'
+    'OR confirmation OR confirmed OR "boarding pass" OR flight OR train OR hotel '
+    "OR trip OR journey OR travel OR receipt)"
 )
 MAX_EMAILS = 15
 MAX_CHARS_PER_EMAIL = 3500  # keeps one Claude request small and cheap
+MAX_PDFS = 3  # most PDFs /ticket sends for one request
+MAX_PDF_BYTES = 20 * 1024 * 1024  # Telegram bots can send up to 50 MB; tickets are far smaller
 
 
 class GmailNotAllowedError(Exception):
@@ -118,3 +121,69 @@ def fetch_booking_emails(
     ]
     log.info("Gmail: %d booking emails found", len(emails))  # a count only, never content
     return emails
+
+
+@dataclass(frozen=True)
+class Attachment:
+    filename: str
+    subject: str  # of the email it came from, so you can tell which booking it is
+    data: bytes
+
+
+def pdf_query(words: str) -> str:
+    """Gmail search for emails from the last year that have a PDF and match your words."""
+    return f"has:attachment filename:pdf newer_than:365d {words}".strip()
+
+
+def pdf_parts(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every part of an email that is a PDF file."""
+    found = []
+
+    def walk(part: dict[str, Any]) -> None:
+        name = part.get("filename") or ""
+        if name.lower().endswith(".pdf") or (name and part.get("mimeType") == "application/pdf"):
+            found.append(part)
+        for child in part.get("parts", []):
+            walk(child)
+
+    walk(payload)
+    return found
+
+
+def fetch_pdf_attachments(
+    token_path: Path,
+    words: str,
+    *,
+    service_factory: Callable[[Path], Any] = build_gmail_service,
+    max_pdfs: int = MAX_PDFS,
+) -> list[Attachment]:
+    """Find PDF attachments (newest emails first) in emails matching words. Google errors pass through."""
+    service = service_factory(token_path)
+    messages = service.users().messages()
+    found = messages.list(userId="me", q=pdf_query(words), maxResults=5).execute()
+    attachments: list[Attachment] = []
+    for item in found.get("messages", []):
+        message = messages.get(userId="me", id=item["id"], format="full").execute()
+        payload = message.get("payload", {})
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in payload.get("headers", [])}
+        for part in pdf_parts(payload):
+            body = part.get("body", {})
+            if body.get("size", 0) > MAX_PDF_BYTES:
+                continue
+            data = body.get("data")
+            if not data and body.get("attachmentId"):
+                data = (
+                    messages.attachments()
+                    .get(userId="me", messageId=item["id"], id=body["attachmentId"])
+                    .execute()
+                    .get("data")
+                )
+            if not data:
+                continue
+            raw = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+            attachments.append(Attachment(part["filename"], headers.get("subject", ""), raw))
+            if len(attachments) >= max_pdfs:
+                log.info("Gmail: %d PDFs found", len(attachments))
+                return attachments
+    log.info("Gmail: %d PDFs found", len(attachments))  # a count only, never names or content
+    return attachments

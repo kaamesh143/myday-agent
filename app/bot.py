@@ -20,7 +20,7 @@ from app.chat import answer
 from app.config import load_settings
 from app.gmail_source import DEFAULT_QUERY
 from app.myday import MyDayConfig, build_myday_message
-from app.trip import TripConfig, trip_reply, trip_section_for_myday
+from app.trip import TripConfig, find_ticket_pdfs, trip_reply, trip_section_for_myday
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 # httpx logs request URLs, and Telegram URLs contain the bot token. httpx2 is used by the Anthropic library.
@@ -35,6 +35,7 @@ HELP_TEXT = (
     "/trip - your trip plan from booking emails in Gmail\n"
     "/trip refresh - search Gmail again now\n"
     "/trip <question> - ask about the trip, e.g. /trip when is my flight?\n"
+    "/ticket <words> - send the booking PDF from Gmail, e.g. /ticket Scandic Rovaniemi\n"
     "Send any text and Claude will answer. I don't remember earlier messages yet."
 )
 
@@ -64,6 +65,18 @@ async def trip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         trip_reply, context.bot_data["trip_config"], context.bot_data["claude"], argument
     )
     await update.message.reply_text(text[:4000])
+
+
+async def ticket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    words = " ".join(context.args or [])
+    await update.message.chat.send_action(ChatAction.UPLOAD_DOCUMENT)
+    result = await asyncio.to_thread(find_ticket_pdfs, context.bot_data["trip_config"], words)
+    if isinstance(result, str):
+        await update.message.reply_text(result)
+        return
+    for pdf in result:
+        caption = pdf.subject[:200]  # Telegram captions are short
+        await update.message.reply_document(document=pdf.data, filename=pdf.filename, caption=caption)
 
 
 async def send_daily_myday(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -111,6 +124,7 @@ def build_application(
         app.add_handler(CommandHandler("myday", myday_cmd, filters=allowed))
         if trip_config is not None:
             app.add_handler(CommandHandler("trip", trip_cmd, filters=allowed))
+            app.add_handler(CommandHandler("ticket", ticket_cmd, filters=allowed))
         if app.job_queue is not None:
             app.job_queue.run_daily(send_daily_myday, time=myday_time, name="daily_myday")
         app.add_handler(MessageHandler(allowed & filters.TEXT & ~filters.COMMAND, chat))
