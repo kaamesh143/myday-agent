@@ -23,8 +23,10 @@ from app.gmail_source import (
     DEFAULT_QUERY,
     Attachment,
     Email,
+    EmailLink,
     GmailNotAllowedError,
     fetch_booking_emails,
+    fetch_email_links,
     fetch_pdf_attachments,
 )
 
@@ -151,12 +153,12 @@ def extract_items(client: anthropic.Anthropic, emails: list[Email], today: datet
 # ---------- cache ----------
 
 
-def read_cache(path: Path, now: datetime.datetime) -> list[TripItem] | None:
-    """Items saved less than CACHE_HOURS ago, or None when there is no fresh cache."""
+def read_cache(path: Path, now: datetime.datetime, max_hours: float = CACHE_HOURS) -> list[TripItem] | None:
+    """Items saved less than max_hours ago, or None when there is no fresh cache."""
     try:
         data = json.loads(path.read_text())
         saved = datetime.datetime.fromisoformat(data["saved_at"])
-        if now - saved > datetime.timedelta(hours=CACHE_HOURS):
+        if now - saved > datetime.timedelta(hours=max_hours):
             return None
         return [TripItem(**item) for item in data["items"]]
     except (OSError, ValueError, KeyError, TypeError):
@@ -303,11 +305,39 @@ TICKET_USAGE = "Tell me what to look for, e.g. /ticket Scandic Rovaniemi or /tic
 NO_PDF = "No PDF found in Gmail for that. Try other words, e.g. the hotel name or booking reference."
 
 
+def matching_items(items: list[TripItem], words: str) -> list[TripItem]:
+    """Trip items whose title, reference or details contain every word (any case)."""
+    wanted = words.lower().split()
+    found = []
+    for item in items:
+        text = f"{item.title} {item.reference} {item.details}".lower()
+        if all(word in text for word in wanted):
+            found.append(item)
+    return found
+
+
+def no_pdf_reply(items: list[TripItem], links: list[EmailLink]) -> str:
+    """What /ticket says when there is no PDF: the booking details we know and links to the emails."""
+    if not items and not links:
+        return NO_PDF
+    parts = ["No PDF is attached to this booking (Booking.com and many hotels send none)."]
+    if items:
+        parts.append("Booking details:\n" + "\n".join(format_item(i) for i in items[:3]))
+    if links:
+        lines = [f"• {link.subject}\n  {link.url}" for link in links]
+        parts.append(
+            "Open the email in Gmail (you can print or save it as PDF from there):\n" + "\n".join(lines)
+        )
+    return "\n\n".join(parts)
+
+
 def find_ticket_pdfs(
     config: TripConfig,
     words: str,
     *,
     fetch: Callable[[Path, str], list[Attachment]] = fetch_pdf_attachments,
+    fetch_links: Callable[[Path, str], list[EmailLink]] = fetch_email_links,
+    now: datetime.datetime | None = None,
 ) -> list[Attachment] | str:
     """The PDFs to send for /ticket, or a short message saying why there are none. Never raises."""
     words = words.strip()
@@ -319,12 +349,18 @@ def find_ticket_pdfs(
         return NOT_CONNECTED
     try:
         pdfs = fetch(config.token_path, words)
+        if pdfs:
+            return pdfs
+        links = fetch_links(config.token_path, words)
     except GmailNotAllowedError:
         return NOT_CONNECTED
     except RefreshError:
         log.warning("Gmail sign-in has expired")
         return SIGNED_OUT
     except (HttpError, GoogleAuthError, OSError, ValueError) as exc:
-        log.warning("Ticket PDFs could not be read: %s", type(exc).__name__)
+        log.warning("Ticket emails could not be read: %s", type(exc).__name__)
         return UNAVAILABLE
-    return pdfs or NO_PDF
+    # Details come from the last saved /trip list (any age), so this costs no Claude request.
+    now = now or datetime.datetime.now(ZoneInfo(config.timezone))
+    cached = read_cache(config.cache_path, now, max_hours=24 * 365) or []
+    return no_pdf_reply(matching_items(upcoming(cached, now.date()), words), links)

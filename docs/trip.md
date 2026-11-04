@@ -21,7 +21,7 @@
 | `/trip` | The whole upcoming plan, grouped by day |
 | `/trip refresh` | Search Gmail again now (after a new booking or a change) |
 | `/trip <question>` | Ask about it, e.g. `/trip what time should I leave for the airport?` |
-| `/ticket <words>` | Send the booking PDF(s) from Gmail to Telegram, e.g. `/ticket Scandic Rovaniemi`. Searches emails from the last year with a PDF attached; sends at most 3, newest first |
+| `/ticket <words>` | Send the booking PDF(s) from Gmail to Telegram, e.g. `/ticket Scandic Rovaniemi`. Searches emails from the last year with a PDF attached; sends at most 3, newest first. If there is no PDF (Booking.com sends none), it replies with the booking details from `/trip` and Gmail links to the matching emails |
 
 ## Limits to know
 
