@@ -63,3 +63,52 @@ Then ask: "Do I need an umbrella today?" The client should offer to call `get_we
 - The SDK hides details of unexpected errors from the client. Only a `ToolError` (a failure we
   expect, such as "weather not available") sends its message across.
 - Never print to stdout in the server: it would corrupt the protocol. Logs go to stderr.
+
+## Lab 3: the bot as an MCP client
+
+Until now only other apps used the server. The bot itself still called `app/weather.py` directly.
+In Lab 3 the bot can ask the server instead, exactly like Claude Desktop does.
+
+```
+/myday (app/myday.py)
+   │  WEATHER_SOURCE=mcp
+   ▼
+MCP client (app/mcp_weather_client.py)  ── starts ──▶  MCP server (app/mcp_server.py)
+   │                                                     └─ runs get_weather → Open-Meteo
+   │  MCP broke? (did not start, timed out, odd reply)
+   ▼
+direct call (app/weather.py)  ← fallback, same as before Lab 3
+```
+
+### Turn it on
+
+Add one line to `.env`, then restart the bot:
+
+```bash
+WEATHER_SOURCE=mcp
+docker compose up -d --build
+docker compose logs bot | grep "Weather for /myday"   # should say: mcp
+```
+
+Send `/myday`. The reply looks the same as before: only the route behind it changed.
+
+### How failures are handled
+
+| What went wrong | Example | What /myday does |
+|---|---|---|
+| MCP itself broke | server crashed, no reply in 30 s | logs a warning, uses the direct call |
+| Weather service down | Open-Meteo unreachable | shows "Weather is not available right now." (no second try: the direct call would hit the same service) |
+
+### Things to know
+
+- **Cost per /myday:** a new Python process starts each time (about 1 to 2 seconds). Fine for a few
+  messages a day. A long-running bot that calls tools often would keep one connection open instead.
+- **No secrets reach the server.** The client passes no environment, so the SDK gives the
+  subprocess only `HOME`, `PATH`, `SHELL` and `TERM`. The weather server needs nothing else.
+- **Worst-case wait:** if MCP hangs for the full 30 s and then the direct call also struggles,
+  /myday can take about 50 s. It runs in a thread, so the bot stays responsive meanwhile.
+
+### Roll back
+
+Set `WEATHER_SOURCE=direct` (or delete the line) and restart. Nothing else changes: the direct call
+is the same code as before Lab 3.
