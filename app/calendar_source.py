@@ -13,14 +13,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from google.auth.exceptions import GoogleAuthError, RefreshError
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from app.google_token import CALENDAR_SCOPE, load_credentials
+
 log = logging.getLogger("assistant")
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = [CALENDAR_SCOPE]
 MAX_SHOWN = 10
 MAX_TITLE = 80
 
@@ -149,13 +149,7 @@ def format_events(events: list[Event], day: datetime.date) -> str:
 
 def build_service(token_path: Path) -> Any:
     """Open the Calendar API with the saved token, refreshing it when it has expired."""
-    credentials = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-    if not credentials.valid:
-        if not credentials.refresh_token:
-            raise RefreshError("The saved token cannot be refreshed.")
-        credentials.refresh(Request())
-        token_path.write_text(credentials.to_json())
-        token_path.chmod(0o600)
+    credentials = load_credentials(token_path)
     return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
