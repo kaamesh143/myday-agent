@@ -179,3 +179,19 @@ def test_at_most_three_pdfs_and_huge_ones_are_skipped():
     service, _ = fake_gmail_with_attachments({"m1": pdf_message([huge, *small])}, {})
     pdfs = fetch_pdf_attachments(Path("t.json"), "x", service_factory=lambda p: service)
     assert [p.filename for p in pdfs] == ["t0.pdf", "t1.pdf", "t2.pdf"]
+
+
+def test_email_links_point_to_gmail():
+    from app.gmail_source import fetch_email_links
+
+    msg = {
+        "payload": {
+            "headers": [{"name": "Subject", "value": "Booking confirmed"}, {"name": "Date", "value": "Mon"}]
+        }
+    }
+    service, calls = fake_gmail({"m1": msg})
+    links = fetch_email_links(Path("t.json"), "Scandic", service_factory=lambda p: service)
+    assert [(link.subject, link.url) for link in links] == [
+        ("Booking confirmed", "https://mail.google.com/mail/u/0/#all/m1")
+    ]
+    assert "-category:promotions" in calls[0]["q"] and "Scandic" in calls[0]["q"]

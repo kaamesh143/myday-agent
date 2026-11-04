@@ -264,7 +264,10 @@ def test_ticket_needs_words(tmp_path):
 
 def test_ticket_returns_pdfs_or_a_message(tmp_path):
     assert trip.find_ticket_pdfs(config(tmp_path), "Scandic", fetch=lambda p, w: [PDF]) == [PDF]
-    assert trip.find_ticket_pdfs(config(tmp_path), "Scandic", fetch=lambda p, w: []) == trip.NO_PDF
+    nothing = trip.find_ticket_pdfs(
+        config(tmp_path), "Scandic", fetch=lambda p, w: [], fetch_links=lambda p, w: [], now=NOW
+    )
+    assert nothing == trip.NO_PDF
     assert trip.find_ticket_pdfs(config(tmp_path), "x", fetch=raises(GmailNotAllowedError())) == NOT_CONNECTED
     fresh = tmp_path / "fresh"
     fresh.mkdir()
@@ -293,3 +296,22 @@ def test_ticket_command_sends_documents(monkeypatch):
     context = SimpleNamespace(args=["Scandic"], bot_data={"trip_config": None})
     asyncio.run(ticket_cmd(SimpleNamespace(message=FakeMessage()), context))
     assert sent == [(b"%PDF fake", "booking.pdf", "Your Scandic booking")]
+
+
+def test_no_pdf_gives_booking_details_and_gmail_links(tmp_path):
+    cfg = config(tmp_path)
+    write_cache(cfg.cache_path, [FLIGHT, HOTEL], NOW - datetime.timedelta(days=2))  # old cache is fine here
+    link = trip.EmailLink(
+        "Your booking is confirmed at Hotel Example", "Mon", "https://mail.google.com/mail/u/0/#all/abc"
+    )
+    reply = trip.find_ticket_pdfs(
+        cfg, "hotel example", fetch=lambda p, w: [], fetch_links=lambda p, w: [link], now=NOW
+    )
+    assert "No PDF is attached" in reply
+    assert "Hotel Example, Dubai" in reply and "XY 101" not in reply  # only the matching booking
+    assert "https://mail.google.com/mail/u/0/#all/abc" in reply
+
+
+def test_matching_items_needs_every_word():
+    assert trip.matching_items([FLIGHT, HOTEL], "ABC123") == [FLIGHT]
+    assert trip.matching_items([FLIGHT, HOTEL], "hotel paris") == []

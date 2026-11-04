@@ -187,3 +187,38 @@ def fetch_pdf_attachments(
                 return attachments
     log.info("Gmail: %d PDFs found", len(attachments))  # a count only, never names or content
     return attachments
+
+
+@dataclass(frozen=True)
+class EmailLink:
+    subject: str
+    date: str
+    url: str  # opens the email in Gmail (web or app)
+
+
+def gmail_url(message_id: str) -> str:
+    return f"https://mail.google.com/mail/u/0/#all/{message_id}"
+
+
+def fetch_email_links(
+    token_path: Path,
+    words: str,
+    *,
+    service_factory: Callable[[Path], Any] = build_gmail_service,
+    max_emails: int = 3,
+) -> list[EmailLink]:
+    """The newest emails matching words (no adverts), as subject, date and a Gmail link."""
+    service = service_factory(token_path)
+    messages = service.users().messages()
+    query = f"newer_than:365d -category:promotions {words}".strip()
+    found = messages.list(userId="me", q=query, maxResults=max_emails).execute()
+    links = []
+    for item in found.get("messages", []):
+        message = messages.get(
+            userId="me", id=item["id"], format="metadata", metadataHeaders=["Subject", "Date"]
+        ).execute()
+        payload = message.get("payload", {})
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in payload.get("headers", [])}
+        subject = headers.get("subject", "(no subject)")
+        links.append(EmailLink(subject, headers.get("date", ""), gmail_url(item["id"])))
+    return links
