@@ -9,6 +9,7 @@ cannot make the bot do anything.
 import datetime
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -57,7 +58,8 @@ Return JSON in exactly this shape:
   "details": "one short line: seat, terminal, gate, address or check-in time, or empty"}}]}}
 
 Rules:
-- One item per flight leg, train, hotel stay, car rental or ticketed event.
+- One item per flight leg, train, hotel stay, car rental or ticketed event, NOT one per passenger:
+  put the passenger names and seats of everyone travelling in details.
 - If several emails describe the same booking, keep one item with the newest details.
 - Leave out cancelled bookings, adverts, newsletters and anything that is not a booking.
 - Never invent values: use an empty string when something is not in the email.
@@ -69,7 +71,7 @@ QUESTION_SYSTEM = (
     "Answer in simple English, briefly. Use only the trip items given. If the answer is not in "
     "them, say so and suggest checking the booking email. Times are local times at each place."
 )
-MAX_EXTRACT_TOKENS = 3000
+MAX_EXTRACT_TOKENS = 4000
 MAX_ANSWER_TOKENS = 600
 
 
@@ -305,15 +307,28 @@ TICKET_USAGE = "Tell me what to look for, e.g. /ticket Scandic Rovaniemi or /tic
 NO_PDF = "No PDF found in Gmail for that. Try other words, e.g. the hotel name or booking reference."
 
 
+def search_words(words: str) -> list[str]:
+    """The useful words of a request: letters and digits only, 3+ characters, lower case."""
+    cleaned = re.sub(r"[^\w\s-]", " ", words.lower())
+    return [word for word in cleaned.split() if len(word) >= 3]
+
+
+def any_of(words: list[str]) -> str:
+    """Gmail syntax for 'any of these words': {a b c}."""
+    return "{" + " ".join(words) + "}"
+
+
 def matching_items(items: list[TripItem], words: str) -> list[TripItem]:
-    """Trip items whose title, reference or details contain every word (any case)."""
-    wanted = words.lower().split()
-    found = []
+    """Trip items that match the most words, so one typo ('pohjanhivi') still finds the hotel."""
+    wanted = search_words(words)
+    scored = []
     for item in items:
         text = f"{item.title} {item.reference} {item.details}".lower()
-        if all(word in text for word in wanted):
-            found.append(item)
-    return found
+        score = sum(word in text for word in wanted)
+        if score:
+            scored.append((score, item))
+    best = max((score for score, _ in scored), default=0)
+    return [item for score, item in scored if score == best]
 
 
 def no_pdf_reply(items: list[TripItem], links: list[EmailLink]) -> str:
@@ -347,11 +362,18 @@ def find_ticket_pdfs(
         return "Please use fewer words (under 200 characters)."
     if not config.token_path.exists():
         return NOT_CONNECTED
+    wanted = search_words(words)
+    if not wanted:
+        return TICKET_USAGE
+    exact = " ".join(wanted)
+    loose = any_of(wanted) if len(wanted) > 1 else exact  # retry with any word, for typos
     try:
-        pdfs = fetch(config.token_path, words)
+        pdfs = fetch(config.token_path, exact) or (loose != exact and fetch(config.token_path, loose)) or []
         if pdfs:
             return pdfs
-        links = fetch_links(config.token_path, words)
+        links = fetch_links(config.token_path, exact)
+        if not links and loose != exact:
+            links = fetch_links(config.token_path, loose)
     except GmailNotAllowedError:
         return NOT_CONNECTED
     except RefreshError:
