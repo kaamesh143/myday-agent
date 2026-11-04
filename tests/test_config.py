@@ -31,3 +31,21 @@ def test_load_settings_reads_all_values(monkeypatch):
     settings = load_settings()
     assert settings.anthropic_api_key == "sk-ant-fake"
     assert settings.allowed_user_ids == {42}
+
+
+def test_trip_settings_have_safe_defaults(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:fake")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    monkeypatch.delenv("TRIP_DAYS_AHEAD", raising=False)
+    monkeypatch.delenv("TRIP_GMAIL_QUERY", raising=False)
+    settings = load_settings()
+    assert settings.trip_days_ahead == 30
+    assert settings.trip_gmail_query == ""
+
+
+def test_bad_trip_days_are_rejected(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:fake")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    monkeypatch.setenv("TRIP_DAYS_AHEAD", "soon")
+    with pytest.raises(SystemExit):
+        load_settings()
