@@ -21,10 +21,11 @@
 | `/trip` | The whole upcoming plan, grouped by day |
 | `/trip refresh` | Search Gmail again now (after a new booking or a change) |
 | `/trip <question>` | Ask about it, e.g. `/trip what time should I leave for the airport?` |
+| `/ticket <words>` | Send the booking PDF(s) from Gmail to Telegram, e.g. `/ticket Scandic Rovaniemi`. Searches emails from the last year with a PDF attached; sends at most 3, newest first |
 
 ## Limits to know
 
-- Only the email text is read, not PDF attachments. Most airline, train and hotel emails
+- `/trip` reads only the email text, not PDF attachments (use `/ticket` to get the PDF itself). Most airline, train and hotel emails
   have the details in the text. If one is missing, forward the PDF to yourself as text or
   use `TRIP_GMAIL_QUERY` with a Gmail label you put on your bookings.
 - Claude can misread an email. Always check times and terminals in the original booking.

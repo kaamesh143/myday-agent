@@ -251,3 +251,45 @@ def test_trip_command_replies(monkeypatch, tmp_path):
     context = SimpleNamespace(args=["when", "do", "I", "fly?"], bot_data=bot_data)
     asyncio.run(trip_cmd(update, context))
     assert replies == ["plan for 'when do I fly?'"]
+
+
+# ---------- /ticket ----------
+
+PDF = trip.Attachment("booking.pdf", "Your Scandic booking", b"%PDF fake")
+
+
+def test_ticket_needs_words(tmp_path):
+    assert trip.find_ticket_pdfs(config(tmp_path), " ") == trip.TICKET_USAGE
+
+
+def test_ticket_returns_pdfs_or_a_message(tmp_path):
+    assert trip.find_ticket_pdfs(config(tmp_path), "Scandic", fetch=lambda p, w: [PDF]) == [PDF]
+    assert trip.find_ticket_pdfs(config(tmp_path), "Scandic", fetch=lambda p, w: []) == trip.NO_PDF
+    assert trip.find_ticket_pdfs(config(tmp_path), "x", fetch=raises(GmailNotAllowedError())) == NOT_CONNECTED
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    assert trip.find_ticket_pdfs(config(fresh, token=False), "x") == NOT_CONNECTED
+
+
+def test_ticket_command_sends_documents(monkeypatch):
+    from app.bot import ticket_cmd
+
+    monkeypatch.setattr("app.bot.find_ticket_pdfs", lambda cfg, words: [PDF])
+    sent = []
+
+    class FakeChat:
+        async def send_action(self, action):
+            pass
+
+    class FakeMessage:
+        chat = FakeChat()
+
+        async def reply_document(self, document, filename, caption):
+            sent.append((document, filename, caption))
+
+        async def reply_text(self, text):
+            sent.append(text)
+
+    context = SimpleNamespace(args=["Scandic"], bot_data={"trip_config": None})
+    asyncio.run(ticket_cmd(SimpleNamespace(message=FakeMessage()), context))
+    assert sent == [(b"%PDF fake", "booking.pdf", "Your Scandic booking")]
