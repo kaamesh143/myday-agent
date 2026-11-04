@@ -12,6 +12,7 @@ from typing import Any
 import anthropic
 
 from app.claude_client import MODEL, ClaudeRefusedError, estimate_cost_usd
+from app.mcp_weather import get_weather_lines_preferring_mcp
 from app.weather import WeatherError, get_weather_lines
 
 log = logging.getLogger("assistant")
@@ -48,6 +49,15 @@ WEATHER_TOOL = Tool(
     ),
     input_schema={"type": "object", "properties": {}},
     run=lambda arguments: "\n".join(get_weather_lines()),
+)
+
+# Lab 3: the same tool as Claude sees it, but our code gets the answer from the MCP server.
+# Claude cannot tell the difference: name, description and inputs are identical.
+MCP_WEATHER_TOOL = Tool(
+    name=WEATHER_TOOL.name,
+    description=WEATHER_TOOL.description,
+    input_schema=WEATHER_TOOL.input_schema,
+    run=lambda arguments: "\n".join(get_weather_lines_preferring_mcp()),
 )
 
 

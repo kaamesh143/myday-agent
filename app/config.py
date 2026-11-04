@@ -46,6 +46,17 @@ class Settings:
     google_token_path: Path
     calendar_ids: tuple[str, ...]  # calendars shown in /myday ("primary" is your main one)
     private_calendar_ids: frozenset[str]  # calendars whose events are shown as "Busy"
+    weather_via_mcp: bool  # get the weather through our MCP server (Lab 3), direct call as fallback
+
+
+def parse_bool(raw: str, name: str) -> bool:
+    """Turn "true"/"false" (also yes/no, on/off, 1/0) into a bool. Anything else is an error."""
+    value = raw.strip().lower()
+    if value in {"true", "yes", "on", "1"}:
+        return True
+    if value in {"false", "no", "off", "0"}:
+        return False
+    raise ValueError(f"{name} must be true or false (got {raw!r})")
 
 
 def load_settings() -> Settings:
@@ -60,6 +71,10 @@ def load_settings() -> Settings:
         myday_time = parse_time_of_day(os.environ.get("MYDAY_TIME", "07:00"), timezone)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        weather_via_mcp = parse_bool(os.environ.get("WEATHER_VIA_MCP", "true"), "WEATHER_VIA_MCP")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return Settings(
         bot_token=token,
         anthropic_api_key=api_key,
@@ -69,4 +84,5 @@ def load_settings() -> Settings:
         google_token_path=Path(os.environ.get("GOOGLE_TOKEN_FILE", "data/token.json")),
         calendar_ids=parse_list(os.environ.get("CALENDAR_IDS", "")) or ("primary",),
         private_calendar_ids=frozenset(parse_list(os.environ.get("CALENDAR_PRIVATE_IDS", ""))),
+        weather_via_mcp=weather_via_mcp,
     )

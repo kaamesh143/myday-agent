@@ -1,18 +1,24 @@
 """Manual check: watch the agent loop step by step.
 
 Run it with: docker compose run --rm bot python -m app.try_agent "Do I need an umbrella today?"
+Add --mcp to get the weather through our MCP server instead (Lab 3).
 """
 
 import sys
 
 import anthropic
 
-from app.agent import WEATHER_TOOL, run_agent
+from app.agent import MCP_WEATHER_TOOL, WEATHER_TOOL, run_agent
 
 
 def main() -> None:
-    question = " ".join(sys.argv[1:]) or "Do I need an umbrella today?"
-    result = run_agent(anthropic.Anthropic(), question, [WEATHER_TOOL])
+    arguments = sys.argv[1:]
+    use_mcp = "--mcp" in arguments
+    question = " ".join(word for word in arguments if word != "--mcp") or "Do I need an umbrella today?"
+    tool = MCP_WEATHER_TOOL if use_mcp else WEATHER_TOOL
+    result = run_agent(anthropic.Anthropic(), question, [tool])
+
+    print(f"Weather tool runs: {'through the MCP server' if use_mcp else 'directly in this process'}")
 
     print(f"Question: {question}\n")
     if not result.steps:

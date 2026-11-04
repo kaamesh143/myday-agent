@@ -63,3 +63,8 @@ Then ask: "Do I need an umbrella today?" The client should offer to call `get_we
 - The SDK hides details of unexpected errors from the client. Only a `ToolError` (a failure we
   expect, such as "weather not available") sends its message across.
 - Never print to stdout in the server: it would corrupt the protocol. Logs go to stderr.
+
+## Our own bot as a client
+
+Since Lab 3 the bot itself calls this server for the weather, with the direct call as
+fallback. See [learning/lab-3-mcp-client.md](learning/lab-3-mcp-client.md).
