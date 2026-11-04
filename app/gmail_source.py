@@ -23,12 +23,13 @@ log = logging.getLogger("assistant")
 # Override with TRIP_GMAIL_QUERY in .env (same syntax as the Gmail search box).
 DEFAULT_QUERY = (
     "newer_than:180d -category:promotions -category:social "
-    "subject:(booking OR booked OR ticket OR e-ticket OR itinerary OR reservation "
+    "subject:(booking OR booked OR ticket OR e-ticket OR eticket OR itinerary OR reservation "
     'OR confirmation OR confirmed OR "boarding pass" OR flight OR train OR hotel '
     "OR trip OR journey OR travel OR receipt)"
 )
-MAX_EMAILS = 15
-MAX_CHARS_PER_EMAIL = 3500  # keeps one Claude request small and cheap
+# A trip has many emails (a hotel alone sent 9), so read enough to reach the flights too.
+MAX_EMAILS = 40  # at most one email per Gmail conversation
+MAX_CHARS_PER_EMAIL = 2500  # 40 x 2500 characters is about 25k tokens: under 1 cent with Haiku
 MAX_PDFS = 3  # most PDFs /ticket sends for one request
 MAX_PDF_BYTES = 20 * 1024 * 1024  # Telegram bots can send up to 50 MB; tickets are far smaller
 
@@ -114,10 +115,18 @@ def fetch_booking_emails(
     """Search Gmail and return the newest matching emails. Google errors pass through to the caller."""
     service = service_factory(token_path)
     messages = service.users().messages()
-    found = messages.list(userId="me", q=query, maxResults=max_emails).execute()
+    found = messages.list(userId="me", q=query, maxResults=max_emails * 3).execute()
+    # Keep the newest email of each conversation: replies and reminders repeat the same booking.
+    seen_threads: set[str] = set()
+    ids = []
+    for item in found.get("messages", []):
+        thread = item.get("threadId", item["id"])
+        if thread not in seen_threads:
+            seen_threads.add(thread)
+            ids.append(item["id"])
     emails = [
-        parse_message(messages.get(userId="me", id=item["id"], format="full").execute())
-        for item in found.get("messages", [])
+        parse_message(messages.get(userId="me", id=message_id, format="full").execute())
+        for message_id in ids[:max_emails]
     ]
     log.info("Gmail: %d booking emails found", len(emails))  # a count only, never content
     return emails

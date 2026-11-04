@@ -14,6 +14,12 @@
 4. `/myday` adds a "Trip" section only when something starts in the next
    `TRIP_DAYS_AHEAD` days (default 30). If Gmail fails, `/myday` simply leaves it out.
 
+## Just ask
+
+Normal messages go to the agent loop with three tools: weather, `get_trip_plan` and
+`find_booking_documents`. So "what is my plan on 20 Nov?" or "send my hotel booking" works
+without a command. Claude picks the tool; our code runs it and sends any PDFs after the answer.
+
 ## Commands
 
 | Command | What it does |

@@ -64,7 +64,7 @@ def test_parse_message_reads_headers_and_falls_back_to_snippet():
 
 def test_long_bodies_are_cut():
     email = parse_message(message(plain="x" * 10_000))
-    assert len(email.text) == 3500
+    assert len(email.text) == 2500
 
 
 def fake_gmail(messages_by_id):
@@ -195,3 +195,20 @@ def test_email_links_point_to_gmail():
         ("Booking confirmed", "https://mail.google.com/mail/u/0/#all/m1")
     ]
     assert "-category:promotions" in calls[0]["q"] and "Scandic" in calls[0]["q"]
+
+
+def test_one_email_per_conversation_and_a_limit():
+    msgs = {f"m{n}": message(plain=f"text {n}") for n in range(6)}
+    service, calls = fake_gmail(msgs)
+    # fake_gmail lists ids without threadId, so give them threads: m0+m1 share one conversation.
+    original = service.users().messages().list
+
+    def list_with_threads(**kwargs):
+        result = original(**kwargs).execute()
+        for item in result["messages"]:
+            item["threadId"] = "t0" if item["id"] in ("m0", "m1") else item["id"]
+        return SimpleNamespace(execute=lambda: result)
+
+    service.users().messages().list = list_with_threads
+    emails = fetch_booking_emails(Path("t.json"), "q", service_factory=lambda p: service, max_emails=3)
+    assert [e.text for e in emails] == ["text 0", "text 2", "text 3"]

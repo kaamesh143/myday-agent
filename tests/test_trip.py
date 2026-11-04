@@ -268,10 +268,11 @@ def test_ticket_returns_pdfs_or_a_message(tmp_path):
         config(tmp_path), "Scandic", fetch=lambda p, w: [], fetch_links=lambda p, w: [], now=NOW
     )
     assert nothing == trip.NO_PDF
-    assert trip.find_ticket_pdfs(config(tmp_path), "x", fetch=raises(GmailNotAllowedError())) == NOT_CONNECTED
+    not_allowed = raises(GmailNotAllowedError())
+    assert trip.find_ticket_pdfs(config(tmp_path), "xyz", fetch=not_allowed) == NOT_CONNECTED
     fresh = tmp_path / "fresh"
     fresh.mkdir()
-    assert trip.find_ticket_pdfs(config(fresh, token=False), "x") == NOT_CONNECTED
+    assert trip.find_ticket_pdfs(config(fresh, token=False), "xyz") == NOT_CONNECTED
 
 
 def test_ticket_command_sends_documents(monkeypatch):
@@ -312,6 +313,18 @@ def test_no_pdf_gives_booking_details_and_gmail_links(tmp_path):
     assert "https://mail.google.com/mail/u/0/#all/abc" in reply
 
 
-def test_matching_items_needs_every_word():
+def test_matching_items_keeps_the_best_match_and_survives_a_typo():
     assert trip.matching_items([FLIGHT, HOTEL], "ABC123") == [FLIGHT]
-    assert trip.matching_items([FLIGHT, HOTEL], "hotel paris") == []
+    assert trip.matching_items([FLIGHT, HOTEL], "Hotel Exampel") == [HOTEL]  # typo in the 2nd word
+    assert trip.matching_items([FLIGHT, HOTEL], "Paris") == []
+
+
+def test_ticket_retries_with_any_word_for_typos(tmp_path):
+    queries = []
+
+    def fetch(path, query):
+        queries.append(query)
+        return [PDF] if query.startswith("{") else []
+
+    assert trip.find_ticket_pdfs(config(tmp_path), "Scandic pohjanhivi!", fetch=fetch) == [PDF]
+    assert queries == ["scandic pohjanhivi", "{scandic pohjanhivi}"]
